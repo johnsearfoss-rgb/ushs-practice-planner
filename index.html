@@ -492,7 +492,7 @@ function closePop(){ picker.classList.remove('open'); pop.classList.remove('open
 document.addEventListener('click',e=>{ if(!picker.contains(e.target)&&e.target!==pickCat&&!pop.contains(e.target)) closePop(); });
 window.addEventListener('resize',()=>{ if(pop.classList.contains('open')) positionPop(); });
 window.addEventListener('scroll',()=>{ if(pop.classList.contains('open')) positionPop(); },true);
-function addDrill(id){ const d=lib()[id]; if(!d) return; current.items.push({drillId:id,mins:d.mins||15}); pick.value=''; renderPlan(); dirty(); toast('Added '+d.name); if(document.activeElement===pick){hl=-1;renderPop();} else closePop(); }
+function addDrill(id){ const d=lib()[id]; if(!d) return; current.items.push({drillId:id,mins:d.mins||15}); pick.value=''; renderPlan(); dirty(); toast('Added '+d.name); closePop(); pick.blur(); }
 $('#add-custom').onclick=()=>{ current.items.push({name:'',mins:5}); renderPlan(); dirty(); const ins=$$('#rail .name-in'); ins[ins.length-1]?.focus(); };
 
 /* ---------- save / load ---------- */
