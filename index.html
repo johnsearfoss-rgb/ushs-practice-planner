@@ -600,27 +600,51 @@ async function drawPlanPage(doc,current){
   // equipment footer reserve
   const eq=new Set(); items.forEach(it=>{const d=it.drillId&&L[it.drillId]; if(d&&d.equipment) d.equipment.split(/,|;|\n/).map(s=>s.trim()).filter(Boolean).forEach(s=>eq.add(s))});
   const footH=30; const avail=H-M-footH-y-6;
-  const n=Math.max(items.length,1); const rowH=Math.max(34,Math.min(165,Math.floor(avail/n)));
-  const thumbW=rowH>=34?Math.min(340,Math.round(rowH*2.5)):0, gap=12; const textX=X+(thumbW?thumbW+gap:0); const textW=W-M-textX;
+  const n=Math.max(items.length,1);
+  const cols=Math.min(4,Math.max(1,Math.ceil(Math.sqrt(n))));
+  const rows=Math.ceil(n/cols);
+  const gapX=14, gapY=12;
+  const cellW=(CW-gapX*(cols-1))/cols;
+  const cellH=Math.max(95,Math.floor((avail-gapY*(rows-1))/rows));
   const imgs=await Promise.all(items.map(it=>{const d=it.drillId&&L[it.drillId]; const s=d&&imgSrc(d); return s?loadImg(s):null;}));
-  let t=toMin(current.start);
-  doc.setLineWidth(.5); doc.setDrawColor(190);
+  // running clock in reading order (left-to-right, top-to-bottom), matching session order
+  let times=[]; let t=toMin(current.start);
+  items.forEach(it=>{ times.push(t); t+=Number(it.mins)||0; });
+  doc.setLineWidth(.6); doc.setDrawColor(205);
   items.forEach((it,i)=>{
-    const d=it.drillId?L[it.drillId]:null; const name=d?d.name:(it.name||'Activity'); const top=y;
-const im=imgs[i]; if(im&&thumbW){ const bh=rowH-6, bw=thumbW; const sc=Math.min(bw/im.width,bh/im.height); const iw=im.width*sc, ih=im.height*sc; try{doc.addImage(im,'JPEG',X+(bw-iw)/2,top+3+(bh-ih)/2,iw,ih);}catch(e){} }
-    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(185,84,26); doc.text(fmt(0,t)+'  ·  '+(it.mins||0)+' min',textX,top+9);
-    doc.setTextColor(0); doc.setFont('helvetica','bold'); doc.setFontSize(10.5); doc.text(doc.splitTextToSize(name,textW-70)[0],textX,top+21);
-    if(d){ doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(47,107,65); doc.text(d.category,W-M,top+21,{align:'right'}); doc.setTextColor(0); }
-    let ty=top+31; const lh2=8.4; const linesLeft=Math.max(0,Math.floor((top+rowH-4-ty)/lh2));
-    if(d&&linesLeft>0){ doc.setFontSize(7.2); doc.setTextColor(50);
-      let lines=doc.splitTextToSize((d.description||'').replace(/\s+/g,' ').trim(),textW); let used=Math.min(lines.length,Math.min(linesLeft,3));
-      if(used){ doc.text(lines.slice(0,used),textX,ty); ty+=used*lh2; }
-      let rem2=linesLeft-used;
-      if(d.coaching&&rem2>0){ doc.setFont('helvetica','bold'); doc.setTextColor(185,84,26); const cl=doc.splitTextToSize('Coaching: '+d.coaching.replace(/\s+/g,' ').trim(),textW).slice(0,Math.min(rem2,2)); doc.text(cl,textX,ty); ty+=cl.length*lh2; rem2-=cl.length; doc.setFont('helvetica','normal'); doc.setTextColor(0); }
-      if(d.progression&&rem2>0){ doc.setTextColor(47,107,65); const pl=doc.splitTextToSize('Progression: '+d.progression.replace(/\s+/g,' ').trim(),textW).slice(0,1); doc.text(pl,textX,ty); doc.setTextColor(0); }
+    const col=i%cols, row=Math.floor(i/cols);
+    const cx=X+col*(cellW+gapX), cy=y+row*(cellH+gapY);
+    doc.rect(cx,cy,cellW,cellH);
+    const d=it.drillId?L[it.drillId]:null; const name=d?d.name:(it.name||'Activity');
+    const pad=7, innerW=cellW-pad*2;
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(185,84,26);
+    doc.text(fmt(0,times[i])+'  ·  '+(it.mins||0)+' min',cx+pad,cy+13);
+    if(d){ doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(47,107,65); doc.text(d.category,cx+cellW-pad,cy+13,{align:'right'}); }
+    doc.setTextColor(0); doc.setFont('helvetica','bold'); doc.setFontSize(11.5);
+    doc.text(doc.splitTextToSize(name,innerW)[0],cx+pad,cy+27);
+    // image gets the lion's share of remaining cell height
+    const headerH=34; const im=imgs[i];
+    const textBudget=im?Math.max(0,Math.min(48,(cellH-headerH)*0.32)):(cellH-headerH);
+    const imgMaxH=Math.max(0,cellH-headerH-6-(im?textBudget:0));
+    let usedImgH=0;
+    if(im&&imgMaxH>20){
+      const sc=Math.min(innerW/im.width,imgMaxH/im.height); const iw=im.width*sc, ih=im.height*sc;
+      try{ doc.addImage(im,'JPEG',cx+(cellW-iw)/2,cy+headerH+(imgMaxH-ih)/2,iw,ih); }catch(e){}
+      usedImgH=imgMaxH;
     }
-    y+=rowH; doc.line(X,y,W-M,y); t+=Number(it.mins)||0;
+    let ty=cy+headerH+usedImgH+(im?10:4); const lh2=8.6;
+    const linesLeft=Math.max(0,Math.floor((cy+cellH-6-ty)/lh2));
+    if(d&&linesLeft>0){
+      doc.setFontSize(7.4); doc.setTextColor(50);
+      let lines=doc.splitTextToSize((d.description||'').replace(/\s+/g,' ').trim(),innerW);
+      let used=Math.min(lines.length,Math.min(linesLeft,im?2:5));
+      if(used){ doc.text(lines.slice(0,used),cx+pad,ty); ty+=used*lh2; }
+      let rem2=linesLeft-used;
+      if(d.coaching&&rem2>0){ doc.setFont('helvetica','bold'); doc.setTextColor(185,84,26); const cl=doc.splitTextToSize('Coaching: '+d.coaching.replace(/\s+/g,' ').trim(),innerW).slice(0,Math.min(rem2,2)); doc.text(cl,cx+pad,ty); doc.setFont('helvetica','normal'); doc.setTextColor(0); }
+    }
+    doc.setDrawColor(205);
   });
+  y+=rows*cellH+(rows-1)*gapY;
   // footer
   const fy=H-M-footH+10; doc.setDrawColor(0); doc.setLineWidth(1); doc.line(X,fy-6,W-M,fy-6);
   doc.setFontSize(8); doc.setTextColor(60); doc.setFont('helvetica','bold'); doc.text('Equipment',X,fy+4); doc.setFont('helvetica','normal');
