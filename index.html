@@ -546,19 +546,35 @@ async function printPlans(list){
 }
 async function drawPlanPage(doc,current){
   const L=lib();
-  const W=612,H=792,M=36,X=M,CW=W-2*M; let y=M;
-  const items=current.items.filter(it=>it.drillId||it.name);
+  const W=612,H=792,M=36,X=M,CW=W-2*M;
+  const allItems=current.items.filter(it=>it.drillId||it.name);
+  const PER_PAGE=4;
+  const chunks=[]; for(let i=0;i<allItems.length;i+=PER_PAGE) chunks.push(allItems.slice(i,i+PER_PAGE));
+  if(!chunks.length) chunks.push([]);
+  let times=[]; let tAcc=toMin(current.start);
+  allItems.forEach(it=>{ times.push(tAcc); tAcc+=Number(it.mins)||0; });
+  const imgsAll=await Promise.all(allItems.map(it=>{const d=it.drillId&&L[it.drillId]; const s=d&&imgSrc(d); return s?loadImg(s):null;}));
+  const crest=await loadImg(CREST);
+  for(let pageIdx=0; pageIdx<chunks.length; pageIdx++){
+    if(pageIdx>0) doc.addPage();
+    await drawOnePage(doc,current,L,W,H,M,X,CW,crest,allItems,chunks[pageIdx],pageIdx*PER_PAGE,times,imgsAll,pageIdx,chunks.length);
+  }
+}
+async function drawOnePage(doc,current,L,W,H,M,X,CW,crest,allItems,items,offset,times,imgsAll,pageIdx,pageCount){
+  let y=M;
   // header
-  const crest=await loadImg(CREST); const ch=54, cw=crest?ch*crest.width/crest.height:0;
+  const ch=54, cw=crest?ch*crest.width/crest.height:0;
   if(crest){ try{doc.addImage(crest,'PNG',X,y,cw,ch);}catch(e){} }
   const hx=X+(crest?cw+12:0);
   doc.setFont('helvetica','bold'); doc.setFontSize(22); doc.text('USHS Boys Soccer',hx,y+20);
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(110); doc.text('Practice plan   ·   Hard Work Pays Off',hx,y+34); doc.setTextColor(0);
   const dt=current.date?new Date(current.date+'T12:00').toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'}):'';
-  const tot=items.reduce((a,b)=>a+(Number(b.mins)||0),0);
+  const tot=allItems.reduce((a,b)=>a+(Number(b.mins)||0),0);
   doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text(dt,W-M,y+20,{align:'right'});
   doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text(`${fmt(0,toMin(current.start))} – ${fmt(0,toMin(current.start)+tot)}   (${tot} min)`,W-M,y+34,{align:'right'});
-  if(current.team&&current.team.trim()!=='USHS') doc.text(current.team,W-M,y+47,{align:'right'});
+  const teamLabel=current.team&&current.team.trim()!=='USHS'?current.team:'';
+  const pageLabel=pageCount>1?`Page ${pageIdx+1} of ${pageCount}`:'';
+  if(teamLabel||pageLabel) doc.text([teamLabel,pageLabel].filter(Boolean).join('   ·   '),W-M,y+47,{align:'right'});
   y+=ch+6;
   doc.setDrawColor(231,116,46); doc.setLineWidth(2); doc.line(X,y,W-M,y); y+=10;
   if(current.theme){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Theme: ',X,y+10); doc.setFont('helvetica','normal'); doc.text(doc.splitTextToSize(current.theme,CW-46)[0]||'',X+46,y+10); y+=16; }
@@ -597,19 +613,17 @@ async function drawPlanPage(doc,current){
     doc.setTextColor(0);
     y+=bh+8;
   }
-  // equipment footer reserve
-  const eq=new Set(); items.forEach(it=>{const d=it.drillId&&L[it.drillId]; if(d&&d.equipment) d.equipment.split(/,|;|\n/).map(s=>s.trim()).filter(Boolean).forEach(s=>eq.add(s))});
-  const footH=30; const avail=H-M-footH-y-6;
+  // last page only: equipment footer reserve
+  const isLastPage=pageIdx===pageCount-1;
+  const eq=new Set(); allItems.forEach(it=>{const d=it.drillId&&L[it.drillId]; if(d&&d.equipment) d.equipment.split(/,|;|\n/).map(s=>s.trim()).filter(Boolean).forEach(s=>eq.add(s))});
+  const footH=isLastPage?30:0; const avail=H-M-footH-y-6;
   const n=Math.max(items.length,1);
-  const cols=Math.min(4,Math.max(1,Math.ceil(Math.sqrt(n))));
-  const rows=Math.ceil(n/cols);
+  const cols=n<=1?1:2;
+  const rows=Math.min(2,Math.ceil(n/cols));
   const gapX=14, gapY=12;
   const cellW=(CW-gapX*(cols-1))/cols;
-  const cellH=Math.max(95,Math.floor((avail-gapY*(rows-1))/rows));
-  const imgs=await Promise.all(items.map(it=>{const d=it.drillId&&L[it.drillId]; const s=d&&imgSrc(d); return s?loadImg(s):null;}));
-  // running clock in reading order (left-to-right, top-to-bottom), matching session order
-  let times=[]; let t=toMin(current.start);
-  items.forEach(it=>{ times.push(t); t+=Number(it.mins)||0; });
+  const cellH=Math.floor((avail-gapY*(rows-1))/rows);
+  const imgs=imgsAll.slice(offset,offset+items.length);
   doc.setLineWidth(.6); doc.setDrawColor(205);
   items.forEach((it,i)=>{
     const col=i%cols, row=Math.floor(i/cols);
@@ -618,7 +632,7 @@ async function drawPlanPage(doc,current){
     const d=it.drillId?L[it.drillId]:null; const name=d?d.name:(it.name||'Activity');
     const pad=7, innerW=cellW-pad*2;
     doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(185,84,26);
-    doc.text(fmt(0,times[i])+'  ·  '+(it.mins||0)+' min',cx+pad,cy+13);
+    doc.text(fmt(0,times[offset+i])+'  ·  '+(it.mins||0)+' min',cx+pad,cy+13);
     if(d){ doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(47,107,65); doc.text(d.category,cx+cellW-pad,cy+13,{align:'right'}); }
     doc.setTextColor(0); doc.setFont('helvetica','bold'); doc.setFontSize(11.5);
     doc.text(doc.splitTextToSize(name,innerW)[0],cx+pad,cy+27);
@@ -645,10 +659,12 @@ async function drawPlanPage(doc,current){
     doc.setDrawColor(205);
   });
   y+=rows*cellH+(rows-1)*gapY;
-  // footer
-  const fy=H-M-footH+10; doc.setDrawColor(0); doc.setLineWidth(1); doc.line(X,fy-6,W-M,fy-6);
-  doc.setFontSize(8); doc.setTextColor(60); doc.setFont('helvetica','bold'); doc.text('Equipment',X,fy+4); doc.setFont('helvetica','normal');
-  doc.text(doc.splitTextToSize('Base kit: cones, goals, pinnies, rebounder, mannequins, balls'+(eq.size?'. Also: '+[...eq].join(', '):''),CW-60).slice(0,2),X+52,fy+4);
+  // footer (last page only)
+  if(isLastPage){
+    const fy=H-M-footH+10; doc.setDrawColor(0); doc.setLineWidth(1); doc.line(X,fy-6,W-M,fy-6);
+    doc.setFontSize(8); doc.setTextColor(60); doc.setFont('helvetica','bold'); doc.text('Equipment',X,fy+4); doc.setFont('helvetica','normal');
+    doc.text(doc.splitTextToSize('Base kit: cones, goals, pinnies, rebounder, mannequins, balls'+(eq.size?'. Also: '+[...eq].join(', '):''),CW-60).slice(0,2),X+52,fy+4);
+  }
 }
 
 /* ---------- library view ---------- */
